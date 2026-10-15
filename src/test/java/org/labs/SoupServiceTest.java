@@ -16,31 +16,12 @@ import org.junit.jupiter.api.Test;
 class SoupServiceTest {
 
     @Test
-    void servesSoupWhenFoodAndPersonalPortionAreAvailable() {
-        try (SoupService soupService = new SoupService(1, 1, new long[]{1})) {
-            assertTrue(soupService.serveSoup(0));
-        }
-    }
+    void servesSoupUntilGlobalSupplyIsExhausted() throws Exception {
+        try (SoupService soupService = new SoupService(new ApplicationConfig(2, 1, 1))) {
+            soupService.start();
 
-    @Test
-    void doesNotServeSoupWhenGlobalSupplyIsEmpty() {
-        try (SoupService soupService = new SoupService(1, 0, new long[]{1})) {
-            assertFalse(soupService.serveSoup(0));
-        }
-    }
-
-    @Test
-    void doesNotServeSoupWhenPersonalPortionIsEmpty() {
-        try (SoupService soupService = new SoupService(1, 1, new long[]{0})) {
-            assertFalse(soupService.serveSoup(0));
-        }
-    }
-
-    @Test
-    void doesNotServeMoreThanAvailablePersonalAndGlobalPortions() {
-        try (SoupService soupService = new SoupService(1, 1, new long[]{1})) {
-            assertTrue(soupService.serveSoup(0));
-            assertFalse(soupService.serveSoup(0));
+            assertTrue(soupService.requestSoup(0).get(1, TimeUnit.SECONDS));
+            assertFalse(soupService.requestSoup(0).get(1, TimeUnit.SECONDS));
         }
     }
 
@@ -51,17 +32,20 @@ class SoupServiceTest {
         CountDownLatch start = new CountDownLatch(1);
 
         try (
-                SoupService soupService = new SoupService(1, 3, new long[]{1, 1, 1, 1});
+                SoupService soupService = new SoupService(
+                        new ApplicationConfig(programmers, 1, 3)
+                );
                 ExecutorService executor = Executors.newFixedThreadPool(programmers)
         ) {
+            soupService.start();
             List<Future<Boolean>> requests = new ArrayList<>();
 
             for (int programmerId = 0; programmerId < programmers; programmerId++) {
-                int id = programmerId;
+                long foodEaten = programmerId;
                 requests.add(executor.submit(() -> {
                     ready.countDown();
                     start.await();
-                    return soupService.serveSoup(id);
+                    return soupService.requestSoup(foodEaten).get(1, TimeUnit.SECONDS);
                 }));
             }
 
@@ -76,6 +60,28 @@ class SoupServiceTest {
             }
 
             assertEquals(3, served);
+        }
+    }
+
+    @Test
+    void servesProgrammerWhoHasEatenLessFirst() throws Exception {
+        try (SoupService soupService = new SoupService(new ApplicationConfig(2, 1, 1))) {
+            Future<Boolean> programmerWhoAteMore = soupService.requestSoup(5);
+            Future<Boolean> programmerWhoAteLess = soupService.requestSoup(1);
+
+            soupService.start();
+
+            assertTrue(programmerWhoAteLess.get(1, TimeUnit.SECONDS));
+            assertFalse(programmerWhoAteMore.get(1, TimeUnit.SECONDS));
+        }
+    }
+
+    @Test
+    void doesNotServeSoupWhenGlobalSupplyIsEmpty() throws Exception {
+        try (SoupService soupService = new SoupService(new ApplicationConfig(2, 1, 0))) {
+            soupService.start();
+
+            assertFalse(soupService.requestSoup(0).get(1, TimeUnit.SECONDS));
         }
     }
 }

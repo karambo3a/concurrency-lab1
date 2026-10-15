@@ -1,44 +1,58 @@
 package org.labs;
 
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.Comparator;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Future;
-import java.util.concurrent.locks.ReentrantLock;
+import java.util.concurrent.PriorityBlockingQueue;
+import java.util.concurrent.atomic.AtomicLong;
 
 public class SoupService implements AutoCloseable {
-    private final ExecutorService waiters;
-    private long foodCnt;
-    private final long[] remaining;
-
-    private final ReentrantLock lock = new ReentrantLock();
-
-    public SoupService(int waitersCnt, long foodCnt, long[] remaining) {
-        this.waiters = Executors.newFixedThreadPool(waitersCnt);
-        this.foodCnt = foodCnt;
-        this.remaining = remaining;
+    private record Order(long foodEaten, CompletableFuture<Boolean> result) {
     }
 
-    public Future<Boolean> requestSoup(int programmerId) {
-        return waiters.submit(() -> serveSoup(programmerId));
-    }
+    private final Thread[] waiters;
+    private final PriorityBlockingQueue<Order> queue;
+    private final AtomicLong foodCnt;
 
-    public Boolean serveSoup(int programmerId) {
-        try {
-            lock.lock();
-            if (foodCnt <= 0 || remaining[programmerId] <= 0) {
-                return false;
-            }
+    public SoupService(ApplicationConfig config) {
+        waiters = new Thread[config.waitersCount()];
+        queue = new PriorityBlockingQueue<>(config.programmersCount(), Comparator.comparingLong(Order::foodEaten));
+        foodCnt = new AtomicLong(config.foodCount());
 
-            foodCnt--;
-            remaining[programmerId]--;
-        } finally {
-            lock.unlock();
+        for (int i = 0; i < waiters.length; ++i) {
+            waiters[i] = new Thread(this::waiter);
         }
-        return true;
+    }
+
+    public void start() {
+        for (Thread waiter : waiters) {
+            waiter.start();
+        }
+    }
+
+    public Future<Boolean> requestSoup(long foodEaten) {
+        CompletableFuture<Boolean> result = new CompletableFuture<>();
+        queue.add(new Order(foodEaten, result));
+        return result;
+    }
+
+    private void waiter() {
+        try {
+            while (true) {
+                Order order = queue.take();
+                order.result.complete(foodCnt.decrementAndGet() >= 0);
+            }
+        } catch (InterruptedException ignored) {
+        }
     }
 
     @Override
-    public void close() {
-        waiters.close();
+    public void close() throws InterruptedException {
+        for (Thread waiter : waiters) {
+            waiter.interrupt();
+        }
+        for (Thread waiter : waiters) {
+            waiter.join();
+        }
     }
 }

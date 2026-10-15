@@ -1,9 +1,11 @@
 package org.labs;
 
-import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Duration;
+import java.util.List;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -23,7 +25,7 @@ class ApplicationTest {
 
     @ParameterizedTest
     @MethodSource("simulationConfigs")
-    void givesEveryProgrammerTheirConfiguredPortionWhenFoodIsEnough(
+    void eatsAllFoodWithoutLargeDifferenceBetweenProgrammers(
             ApplicationConfig config
     ) {
         assertTimeoutPreemptively(Duration.ofSeconds(5), () -> {
@@ -32,18 +34,31 @@ class ApplicationTest {
             application.start();
             application.stop();
 
-            assertArrayEquals(
-                    new long[config.programmersCount()],
-                    application.remainingPortions()
-            );
+            List<Long> foodEaten = application.getFoodEaten();
+            long totalFoodEaten = foodEaten.stream()
+                    .mapToLong(Long::longValue)
+                    .sum();
+            long maxFoodEaten = foodEaten.stream()
+                    .mapToLong(Long::longValue)
+                    .max()
+                    .orElseThrow();
+            long minFoodEaten = foodEaten.stream()
+                    .mapToLong(Long::longValue)
+                    .min()
+                    .orElseThrow();
+
+            assertEquals(config.foodCount(), totalFoodEaten);
+            assertTrue(maxFoodEaten - minFoodEaten <= 10);
+
+            System.out.println(foodEaten);
         });
     }
 
     private static Stream<ApplicationConfig> simulationConfigs() {
         return Stream.of(
-                new ApplicationConfig(2, 1, 3),
-                new ApplicationConfig(3, 2, 6),
-                new ApplicationConfig(7, 1, 10)
+                new ApplicationConfig(2, 1, 20),
+                new ApplicationConfig(3, 2, 30),
+                new ApplicationConfig(7, 2, 70)
         );
     }
 }
